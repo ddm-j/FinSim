@@ -133,6 +133,10 @@ class BankAccount(object):
         if date_range:
             self.compound(*date_range)
 
+    def currentBalance(self):
+        return self.Ledger.groupby(level=0).tail(1).balance.iloc[-1]
+
+
     def compound(self, start, end):
         start = pd.to_datetime(start)
         end = pd.to_datetime(end)
@@ -189,7 +193,37 @@ class BankAccount(object):
 
         return df
 
-class Asset(BankAccount):
+class Investment(BankAccount):
+
+    def __init__(self, balance, rule='monthly', name=None,
+                 time_value=0.03, distribution='triangular', stdev=0.0110008, days='all'):
+
+        super().__init__(balance=balance, rule=rule, rate=0, name=name)
+        self.TimeValue = time_value
+        self.Distribution = getattr(np.random,distribution)
+        self.Appreciation = self.Distribution(*self.TimeValue) if type(time_value) == tuple else time_value
+        self.Days = days
+        self.StDev = stdev
+
+    def update(self,date):
+        date = pd.to_datetime(date)
+        super().update(date)
+
+        ret = self.Appreciation/365 + self.StDev*np.random.normal()
+        balance = self.currentBalance()
+        # Only Debit Account if Active Day
+        if self.Days == 'all':
+            self.updateLedger('Growth',date,balance*ret)
+        else:
+            if self._week(date):
+                self.updateLedger('Growth', date, balance * ret)
+
+        # Update appreciation rate for the year if today is a new year
+        if super()._year(date):
+            self.Appreciation = self.Distribution(*self.TimeValue) if type(self.TimeValue) == tuple else self.TimeValue
+
+
+class Liability(BankAccount):
 
     def __init__(self, principal, equity, rule='monthly', rate=0.06, term=30, name=None,
                  time_value=0.03, distribution='triangular'):
@@ -234,7 +268,7 @@ class Asset(BankAccount):
         else:
             if self.Schedule.onSchedule(date):
                 market_value = self.EquityHistory.iloc[-1].market_value*(1+self.Appreciation/12)
-                if date not in self.Ledger.index.get_level_values(level=0):
+                if self.Own:#date not in self.Ledger.index.get_level_values(level=0):
                     equity = market_value
                 else:
                     equity = market_value - self.Ledger.groupby(level=0).tail(1).loc[date].balance.iloc[0]
@@ -345,7 +379,7 @@ class Payment(object):
         self.Rule = rule
 
         # Type Checking
-        if type(to_account) != Asset:
+        if type(to_account) != Liability:
             raise ValueError('to_account must be of type Asset to make payments!')
         if amount:
             self.Amount = amount
