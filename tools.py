@@ -99,19 +99,28 @@ class BankAccount(object):
     def initialize(self, date):
 
         # Create the ledger
-        self.Ledger = pd.DataFrame(columns=['date', 'num', 'action',
-                                            'amount',
-                                            'balance',
-                                            'id'])
-        self.Ledger.loc[0] = [date, 0, 'Open', 0.00, 0.00, "None"]
-        self.Ledger.set_index(['date', 'num'], inplace=True)
-        self.updateLedger('Deposit', date, self.InitialBalance)
+        #self.Ledger = pd.DataFrame(columns=['date', 'num', 'action',
+        #                                    'amount',
+        #                                    'balance',
+        #                                    'id'])
+        #self.Ledger.loc[0] = [date, 0, 'Open', 0.00, 0.00, "None"]
+        #self.Ledger.set_index(['date', 'num'], inplace=True)
+
+        self.Ledger = {date:
+                           [{'num':0,
+                            'action':'Open',
+                            'amount':0.00,
+                            'balance':self.InitialBalance,
+                            'id':0}]
+                       }
+
+        #self.updateLedger('Deposit', date, self.InitialBalance)
 
         # Create the schedule
         self.Schedule = Schedule(self.Period, date)
 
     def withdraw(self, date, amount):
-        if self.Ledger.iloc[-1].balance < amount:
+        if self.currentBalance() < amount:
             print('Insufficient funds for withdrawal.')
             return False
         self.updateLedger('Withdraw',date,-amount)
@@ -119,6 +128,16 @@ class BankAccount(object):
 
     def transfer(self, date, amount, name):
         self.updateLedger('Transfer from '+name,date,amount)
+
+    def addEntry(self,num,action,amount,balance,id):
+
+        return {
+            'num':num,
+            'action':action,
+            'amount':amount,
+            'balance':balance,
+            'id':id
+        }
 
     def update(self, date):
 
@@ -128,38 +147,34 @@ class BankAccount(object):
         if not hasattr(self, 'Ledger'):
             self.initialize(date)
 
+        # Add date to ledger if not already
+        entry = self.addEntry(0,'Update',0.00,self.currentBalance(),uuid.uuid1().int)
+        if date not in self.Ledger:
+            self.Ledger.update({date:[
+                entry
+            ]})
+
         # Determine if interest is scheduled for today
         date_range = self.Schedule.onSchedule(date)
         if date_range:
             self.compound(*date_range)
 
     def currentBalance(self):
-        return self.Ledger.groupby(level=0).tail(1).balance.iloc[-1]
-
+        dates = list(self.Ledger.keys())
+        dates.sort()
+        #print(dates)
+        #latest = max(dates)
+        latest = dates[-1]
+        return self.Ledger[latest][-1]['balance']
 
     def compound(self, start, end):
         start = pd.to_datetime(start)
         end = pd.to_datetime(end)
 
         # Slice the ledger and forward fill balances
-        df = self.Ledger.groupby(level=0).tail(1).reset_index(level=1).balance
         ind = pd.DatetimeIndex(pd.date_range(start,end))
-        df = df.reindex(ind)
-        df.ffill(inplace=True)
-
-        # Get last balance before start date if needed, fill previous balance
-        if start < self.Ledger.first_valid_index()[0]:
-            last_balance = 0.00
-        else:
-            diff = pd.Series(self.Ledger.index.get_level_values(level=0)-start)
-            if not self.Ledger.index.get_level_values(level=0).is_unique:
-                idx = -1
-            else:
-                idx = (diff[(diff < pd.to_timedelta(0))].idxmax())
-
-            last_balance = self.Ledger.iloc[idx].groupby(level=0).tail(1).balance
-
-        df.fillna(value=last_balance,inplace=True)
+        bal = [self.Ledger[d][-1]['balance'] for d in ind]
+        df = pd.Series(bal,index=ind)
 
         # Calculate Interest
         rate = self.Rate/365
@@ -170,21 +185,26 @@ class BankAccount(object):
 
     def total(self,action):
 
+        if isinstance(self.Ledger,dict):
+            self.createResults()
+
         total = self.Ledger[self.Ledger['action']==action]['amount'].sum()
         return total
 
     def updateLedger(self, action, date, amount):
 
         date = pd.to_datetime(date)
+        balance = self.currentBalance()
+        num = len(self.Ledger[date])
+        id = uuid.uuid1().int
 
-        if date in self.Ledger.index.get_level_values(0):
-            num = self.Ledger.xs((date,)).index.max()+1
-        else:
-            num = 0
-        id = uuid.uuid1()
-        self.Ledger.loc[(date,num),:] = [action,amount,self.Ledger.iloc[-1].balance+amount,id.int]
+        entry = self.addEntry(num,action,amount,balance+amount,id)
+        self.Ledger[date].append(entry)
 
     def getHistory(self,column, transaction=None):
+
+        if isinstance(self.Ledger,dict):
+            self.createResults()
 
         if column not in self.Ledger.columns:
             raise ValueError('{0} is not in Ledger columns: {1}'.format(column,', '.join(self.Ledger.columns)))
@@ -192,6 +212,13 @@ class BankAccount(object):
         df = getattr(self.Ledger,column).groupby(level=0).tail(1).droplevel(level=1)
 
         return df
+
+    def createResults(self):
+        ledg = {}
+        # Running this function converts the ledger into a DataFrame. Only run if the simulation is finished.
+        for key in self.Ledger:
+            ledg.update({key:pd.DataFrame(self.Ledger[key]).set_index('num')})
+        self.Ledger = pd.concat(ledg.values(),keys=ledg.keys())
 
 class Investment(BankAccount):
 
@@ -222,7 +249,6 @@ class Investment(BankAccount):
         if super()._year(date):
             self.Appreciation = self.Distribution(*self.TimeValue) if type(self.TimeValue) == tuple else self.TimeValue
 
-
 class Liability(BankAccount):
 
     def __init__(self, principal, equity, rule='monthly', rate=0.06, term=30, name=None,
@@ -250,9 +276,9 @@ class Liability(BankAccount):
             self.Interest2Principal = float(loan.interest_to_principle)
 
     def payment(self, date, amount):
-        if self.Ledger.iloc[-1].balance < amount:
+        if self.currentBalance() < amount:
             print('Loan paid off!')
-            self.updateLedger('Payment',date,-self.Ledger.iloc[-1].balance)
+            self.updateLedger('Payment',date,-self.currentBalance())
             self.Own = True
         else:
             self.updateLedger('Payment',date,-amount)
@@ -264,14 +290,14 @@ class Liability(BankAccount):
 
         # Update property value & equity
         if len(self.EquityHistory) == 0:
-            self.EquityHistory.loc[self.Ledger.index.get_level_values(0)[0]] = [self.Principal, self.Equity]
+            self.EquityHistory.loc[min(list(self.Ledger.keys()))] = [self.Principal, self.Equity]
         else:
             if self.Schedule.onSchedule(date):
                 market_value = self.EquityHistory.iloc[-1].market_value*(1+self.Appreciation/12)
                 if self.Own:#date not in self.Ledger.index.get_level_values(level=0):
                     equity = market_value
                 else:
-                    equity = market_value - self.Ledger.groupby(level=0).tail(1).loc[date].balance.iloc[0]
+                    equity = market_value - self.currentBalance()
                 self.EquityHistory.loc[date] = [market_value,
                                                 equity]
 
@@ -399,8 +425,8 @@ class Payment(object):
             if self.Schedule.onSchedule(date):
 
                 # Check if we are less than a payment away
-                if self.Amount > self.ToAccount.Ledger.iloc[-1].balance:
-                    amount = self.ToAccount.Ledger.iloc[-1].balance
+                if self.Amount > self.ToAccount.currentBalance():
+                    amount = self.ToAccount.currentBalance()
 
                     # Withdraw from first account
                     success = self.FromAccount.withdraw(date, amount)
