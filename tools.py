@@ -162,8 +162,6 @@ class BankAccount(object):
     def currentBalance(self):
         dates = list(self.Ledger.keys())
         dates.sort()
-        #print(dates)
-        #latest = max(dates)
         latest = dates[-1]
         return self.Ledger[latest][-1]['balance']
 
