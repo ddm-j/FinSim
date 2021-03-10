@@ -69,11 +69,12 @@ class Revenue(object):
 
 class BankAccount(object):
 
-    def __init__(self, balance, rule='yearly', rate=0.06, name='None'):
+    def __init__(self, balance, rule='yearly', rate=0.06, name='None',include=True):
         self.Name = name
         self.InitialBalance = balance
         self.Rate = rate
         self.Period = rule
+        self.Include = include
 
     def _year(self,date):
         if [date.month, date.day] == [12, 31]:
@@ -221,9 +222,9 @@ class BankAccount(object):
 class Investment(BankAccount):
 
     def __init__(self, balance, rule='monthly', name=None,
-                 time_value=0.03, distribution='triangular', stdev=0.0110008, days='all'):
+                 time_value=0.03, distribution='triangular', stdev=0.0110008, days='all',include=True):
 
-        super().__init__(balance=balance, rule=rule, rate=0, name=name)
+        super().__init__(balance=balance, rule=rule, rate=0, name=name, include=include)
         self.TimeValue = time_value
         self.Distribution = getattr(np.random,distribution)
         self.Appreciation = self.Distribution(*self.TimeValue) if type(time_value) == tuple else time_value
@@ -250,7 +251,7 @@ class Investment(BankAccount):
 class Liability(BankAccount):
 
     def __init__(self, principal, equity, rule='monthly', rate=0.06, term=30, name=None,
-                 time_value=0.03, distribution='triangular'):
+                 time_value=0.03, distribution='triangular',include=True):
 
         self.Name = name
         self.Principal = principal
@@ -263,9 +264,9 @@ class Liability(BankAccount):
         self.Own = True
 
         if principal == equity:
-            super().__init__(balance=equity, rule=rule, rate=0, name=name)
+            super().__init__(balance=equity, rule=rule, rate=0, name=name, include=include)
         else:
-            super().__init__(balance=principal-equity, rule=rule, rate=rate, name=name)
+            super().__init__(balance=principal-equity, rule=rule, rate=rate, name=name, include=include)
 
             # Finance the asset
             self.Own = False
@@ -440,6 +441,53 @@ class Payment(object):
                     # Make the payment to the second account
                     self.ToAccount.payment(date, self.Amount) if success else 1
 
+class Simulation(object):
+
+    def __init__(self, start, end, objects):
+
+        self.Dates = pd.date_range(start,end)
+        self.Objects = objects
+
+    def run(self,networth=True):
+
+        for _ in self.Dates:
+
+            [i.update(_) for i in self.Objects]
+
+        if networth:
+
+            self.Networth = self.calcNetworth()
+
+    def calcNetworth(self):
+
+        networth = pd.DataFrame(index=self.Dates)
+
+        for obj in self.Objects:
+
+            if isinstance(obj,BankAccount) and not isinstance(obj,Liability):
+                if obj.Include:
+                    # Get Historic Balance Data
+                    networth[obj.Name] = obj.getHistory('balance')
+
+            elif isinstance(obj,Liability):
+                if obj.Include:
+                    # Get Liability Balance
+                    #networth[obj.Name+'_balance'] = obj.getHistory('balance')
+                    #networth[obj.Name+'_equity'] = obj.EquityHistory.equity
+                    bal = obj.getHistory('balance')
+                    eq = obj.EquityHistory.equity
+                    if bal[0] == eq[0]:
+                        # We own this liability
+                        networth[obj.Name + '_equity'] = eq
+                    else:
+                        networth[obj.Name+'_balance'] = -bal
+                        networth[obj.Name+'_equity'] = eq
+
+        networth.fillna(method='ffill',inplace=True)
+
+        networth['networth'] = networth.sum(axis=1)
+
+        return networth
 
 
 
