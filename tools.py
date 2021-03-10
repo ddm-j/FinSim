@@ -448,17 +448,43 @@ class Simulation(object):
         self.Dates = pd.date_range(start,end)
         self.Objects = objects
 
-    def run(self,networth=True):
+    def run(self,results=True,final=False):
 
         for _ in self.Dates:
-
             [i.update(_) for i in self.Objects]
 
-        if networth:
+        if results:
+            self.Results = self.calcNetworth()
 
-            self.Networth = self.calcNetworth()
+        if final:
+            self.Networth = self.finalNetworth()
 
-    def calcNetworth(self):
+    def finalNetworth(self):
+
+        networth = 0
+
+        for obj in self.Objects:
+
+            if isinstance(obj,BankAccount) and not isinstance(obj,Liability):
+                if obj.Include:
+                    # Get Historic Balance Data
+                    networth += obj.getHistory('balance').iloc[-1]
+
+            elif isinstance(obj,Liability):
+                if obj.Include:
+                    # Get Liability Balance
+                    bal = obj.getHistory('balance')
+                    eq = obj.EquityHistory.equity
+                    if bal[0] == eq[0]:
+                        # We own this liability
+                        networth += eq.iloc[-1]
+                    else:
+                        networth += -bal.iloc[-1]
+                        networth += eq.iloc[-1]
+
+        return networth
+
+    def calcNetworth(self,final_only=False):
 
         networth = pd.DataFrame(index=self.Dates)
 
@@ -472,8 +498,6 @@ class Simulation(object):
             elif isinstance(obj,Liability):
                 if obj.Include:
                     # Get Liability Balance
-                    #networth[obj.Name+'_balance'] = obj.getHistory('balance')
-                    #networth[obj.Name+'_equity'] = obj.EquityHistory.equity
                     bal = obj.getHistory('balance')
                     eq = obj.EquityHistory.equity
                     if bal[0] == eq[0]:
