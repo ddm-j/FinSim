@@ -31,7 +31,7 @@ def main(n,simpleIn,simpleOut,financeParams,financeIn,financeOut):
     # Start and stop points
     start = "2021-01-01"
     end = "2031-01-01"
-    n_loops = 2
+    n_loops = 200
 
     with tqdm(total=n_loops) as progress_bar:
         for x in tqdm(range(0,n_loops),desc='#{0}'.format(n),position=n,leave=True):
