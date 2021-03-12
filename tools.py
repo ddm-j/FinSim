@@ -19,7 +19,7 @@ class Expense(object):
 
         self.Name = name
 
-class Revenue(object):
+class Cashflow(object):
 
     def __init__(self, amount, account, mode='simple', distribution='triangular', rule='biweekly', name='None'):
 
@@ -63,9 +63,13 @@ class Revenue(object):
             else:
                 self.Schedule = Schedule(self.Rule, date)
 
-        # Make the deposit if on schedule
+        # Make the deposit/withdrawal if on schedule
         if self.Schedule.onSchedule(date):
-            self.Account.deposit(date, self.getAmount(date))
+            amount = self.getAmount(date)
+            if amount > 0:
+                self.Account.deposit(date, amount)
+            else:
+                self.Account.withdraw(date, amount)
 
 class BankAccount(object):
 
@@ -100,13 +104,6 @@ class BankAccount(object):
     def initialize(self, date):
 
         # Create the ledger
-        #self.Ledger = pd.DataFrame(columns=['date', 'num', 'action',
-        #                                    'amount',
-        #                                    'balance',
-        #                                    'id'])
-        #self.Ledger.loc[0] = [date, 0, 'Open', 0.00, 0.00, "None"]
-        #self.Ledger.set_index(['date', 'num'], inplace=True)
-
         self.Ledger = {date:
                            [{'num':0,
                             'action':'Open',
@@ -114,8 +111,6 @@ class BankAccount(object):
                             'balance':self.InitialBalance,
                             'id':0}]
                        }
-
-        #self.updateLedger('Deposit', date, self.InitialBalance)
 
         # Create the schedule
         self.Schedule = Schedule(self.Period, date)
@@ -222,7 +217,7 @@ class BankAccount(object):
 class Investment(BankAccount):
 
     def __init__(self, balance, rule='monthly', name=None,
-                 time_value=0.03, distribution='triangular', stdev=0.0110008, days='all',include=True):
+                 time_value=0.03, distribution='triangular', stdev=0.0110008, days='all',include=True,following=None):
 
         super().__init__(balance=balance, rule=rule, rate=0, name=name, include=include)
         self.TimeValue = time_value
@@ -230,19 +225,25 @@ class Investment(BankAccount):
         self.Appreciation = self.Distribution(*self.TimeValue) if type(time_value) == tuple else time_value
         self.Days = days
         self.StDev = stdev
+        self.Follow = following
+        self.Return = 0
 
     def update(self,date):
         date = pd.to_datetime(date)
         super().update(date)
 
-        ret = self.Appreciation/365 + self.StDev*np.random.normal()
+        if self.Follow:
+            self.Return = self.Follow.Return
+        else:
+            self.Return = self.Appreciation/365 + self.StDev*np.random.normal()
+
         balance = self.currentBalance()
         # Only Debit Account if Active Day
         if self.Days == 'all':
-            self.updateLedger('Growth',date,balance*ret)
+            self.updateLedger('Growth',date,balance*self.Return)
         else:
             if self._week(date):
-                self.updateLedger('Growth', date, balance * ret)
+                self.updateLedger('Growth', date, balance * self.Return)
 
         # Update appreciation rate for the year if today is a new year
         if super()._year(date):
