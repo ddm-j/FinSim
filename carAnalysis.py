@@ -31,7 +31,7 @@ def main(n,simpleIn,simpleOut,financeParams,financeIn,financeOut):
     # Start and stop points
     start = "2021-01-01"
     end = "2031-01-01"
-    n_loops = 200
+    n_loops = 2
 
     with tqdm(total=n_loops) as progress_bar:
         for x in tqdm(range(0,n_loops),desc='#{0}'.format(n),position=n,leave=True):
@@ -58,7 +58,7 @@ def main(n,simpleIn,simpleOut,financeParams,financeIn,financeOut):
                 acc = acnBalance-finPrice*p[0]
 
                 inv = Investment(acc,time_value=marketRet,name="Invest.{0}".format(d),following=investment1)
-                car = Liability(finPrice,finPrice*p[0], rule='monthly', time_value=dep, name='Car.{0}'.format(d))
+                car = Liability(finPrice,finPrice*p[0], rule='monthly', term=p[2], rate=p[1], time_value=dep, name='Car.{0}'.format(d))
                 rev = Cashflow(income, inv, mode='simple', rule='biweekly', name='Roadrunner.{0}'.format(d))
                 carPay = Payment(inv,car,rule='monthly')
                 gasf = Cashflow(-finGas,inv,rule='monthly')
